@@ -1,0 +1,30 @@
+dev:
+  aws_account_id: "786994105833"
+  cluster_log_destination: "s3://pcds-databricks-common-786994105833/cluster-logs/"
+  cluster_instance_profile_arn: "arn:aws:iam::786994105833:instance-profile/pc-iot-786994105833"
+  default_worker_node_type: c5.xlarge
+  mem_worker_node_type: r5.xlarge
+  driver_node_type: m5.xlarge
+  default_num_workers: 2
+  manage_run_group: pcds-iot-smartsquad-dev,pcds-iot-smartsquad-test
+  schedule_status: "PAUSED"
+test:
+  aws_account_id: "168341759447"
+  cluster_log_destination: "s3://pcds-databricks-common-168341759447/cluster-logs/"
+  cluster_instance_profile_arn: "arn:aws:iam::168341759447:instance-profile/pc-iot-168341759447"
+  default_worker_node_type: c5.xlarge
+  mem_worker_node_type: r5.xlarge
+  driver_node_type: m5.xlarge
+  default_num_workers: 2
+  manage_run_group: pcds-iot-smartsquad-dev,pcds-iot-smartsquad-test
+  schedule_status: "PAUSED"
+prod:
+  aws_account_id: "785562577411"
+  cluster_log_destination: "s3://pcds-databricks-common-785562577411/cluster-logs/"
+  cluster_instance_profile_arn: "arn:aws:iam::785562577411:instance-profile/pc-iot-785562577411"
+  default_worker_node_type: c5.xlarge
+  mem_worker_node_type: r5.xlarge
+  driver_node_type: m5.4xlarge
+  default_num_workers: 2
+  manage_run_group: pcds-iot-smartsquad-dev
+  schedule_status: "UNPAUSED"

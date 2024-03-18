@@ -1,0 +1,6 @@
+device_summary:
+  source: smarthome_device_status
+  target: smarthome_device_summary
+device_summary_view:
+  source: smarthome_device_summary
+  target: smarthome_device_summary_vw

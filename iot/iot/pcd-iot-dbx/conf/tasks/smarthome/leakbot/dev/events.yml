@@ -1,0 +1,26 @@
+program: smarthome_leakbot
+name: events
+read_stream:
+  format: cloudFiles
+  options:
+    pathGlobFilter: "*.json"
+    recursiveFileLookup: true
+    cloudFiles.format: json
+    cloudFiles.maxFilesPerTrigger: "5"
+    cloudFiles.queueUrl: https://sqs.us-east-1.amazonaws.com/786994105833/leakbot-SQS
+    cloudFiles.region: us-east-1
+    cloudFiles.useNotifications: true
+    cloudFiles.includeExistingFiles: false
+    cloudFiles.validateOptions: true
+    multiLine: true
+  source_s3_location: s3://nw-internal-leakbot-786994105833-us-east-1/
+write_stream:
+  trigger:
+    availableNow: True
+  options:
+    checkpointLocation: s3://pc-iot-raw-786994105833/leakbot/checkpoints/Events
+micro_batch:
+  mode: append
+  save_as:
+    table: events
+    schema: dhf_iot_leakbot_raw_dev

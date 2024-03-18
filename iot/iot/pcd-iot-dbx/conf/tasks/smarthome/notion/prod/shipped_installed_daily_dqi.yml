@@ -1,0 +1,22 @@
+program: smarthome_notion
+name: shipped_installed_daily
+read_stream:
+  format: delta
+  options:
+    ignoreChanges: true
+    maxBytesPerTrigger: 1G
+  table_source: dhf_iot_notion_raw_prod.shipped_installed_daily
+write_stream:
+  trigger:
+    availableNow: True
+  options:
+    checkpointLocation: s3://pc-iot-raw-785562577411/notion/checkpoints/DailyShpInstldDQI
+alert_conf:
+  email_to: dd57a6dc.nationwide.com@amer.teams.ms,NWLine-IoTA@nationwide.com
+  email_from: iot@nationwide.com
+  email_subject: "DQI Alert: shipped_installed_daily"
+dqi_conf:
+  target_table: dhf_iot_dqichecks_prod.notion_raw_audit_errors
+  mode: append
+  source_partition_column: load_dt
+

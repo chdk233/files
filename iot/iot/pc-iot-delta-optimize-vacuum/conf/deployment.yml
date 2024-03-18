@@ -1,0 +1,480 @@
+# Custom section is used to store configurations that might be repetative.
+# Please read YAML documentation for details on how to use substitutions and anchors.
+custom:
+  basic-cluster-props: &basic-cluster-props
+    spark_version: "12.2.x-scala2.12"
+    policy_id: cluster-policy://IOT_JOB_SML
+    cluster_log_conf:
+      s3:
+        region: us-east-1
+        destination: {{ var[env['ENV']]['cluster_log_destination'] }}
+    aws_attributes:
+      first_on_demand: 1
+      instance_profile_arn: {{ var[env['ENV']]['cluster_instance_profile_arn'] }}
+      ebs_volume_count: 1
+      ebs_volume_size: 100
+      ebs_volume_type: GENERAL_PURPOSE_SSD
+    custom_tags:
+      Project: pl-all-optimization-batch
+
+  basic-static-cluster: &basic-static-cluster
+    new_cluster:
+      <<: *basic-cluster-props
+      num_workers: {{ var[env['ENV']]['num_workers'] }}
+      node_type_id: {{ var[env['ENV']]['cloud_node_type_id'] }}
+      driver_node_type_id: {{ var[env['ENV']]['driver_node_type_id'] }}
+      autoscale:
+        min_workers: 1
+        max_workers: {{ var[env['ENV']]['num_workers'] }}
+      enable_elastic_disk: true
+      spark_conf:
+        spark.databricks.delta.vacuum.parallelDelete.enabled: "true"
+        spark.databricks.io.cache.enabled: "true"
+        spark.sql.shuffle.partitions: "1000"
+        spark.sql.sources.parallelPartitionDiscovery.parallelism: "1000"
+
+
+  access_control_list: &access_control_list
+    - group_name: {{ var[env['ENV']]['manage_run_group'] }}
+      permission_level: CAN_MANAGE_RUN
+    - user_name: iotsid@nationwide.com
+      permission_level: IS_OWNER
+
+  schedule: &schedule
+    quartz_cron_expression: "00 00 03 * * ?"
+    timezone_id: "America/New_York"
+    pause_status: {{ var[env['ENV']]['schedule_status'] }}
+
+  email_notifications: &email_notifications
+    on_failure:
+    - dd57a6dc.nationwide.com@amer.teams.ms
+    no_alert_for_skipped_runs: true
+
+  tags: &tags
+    version: {{ env['VERSION'] }}
+    repo: pc-iot-delta-optimize-vacuum
+
+environments:
+  default:
+    workflows:
+############################################################################################
+      - name: "iot_optimize_vacuum-dhf_zubie_raw_{{ env['ENV'] }}"
+        job_clusters:
+          - job_cluster_key: "default"
+            <<: *basic-static-cluster
+        access_control_list: *access_control_list
+        schedule: *schedule
+        {% if env.ENV == 'prod' %}
+        email_notifications: *email_notifications
+        {% endif %}
+        tags: *tags
+        tasks:
+          - task_key: "opt-zubie_raw-trippoints"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_zubie_raw.trippoints.yml", "--schema" , "dhf_iot_zubie_raw_{{ env['ENV'] }}","--full"]
+          - task_key: "vac-zubie_raw-trippoints"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_zubie_raw.trippoints.yml", "--schema" , "dhf_iot_zubie_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-zubie_raw-trippoints
+
+############################################################################################
+      - name: "iot_optimize_vacuum-dhf_iot_ims_raw_{{ env['ENV'] }}"
+        job_clusters:
+          - job_cluster_key: "default"
+            <<: *basic-static-cluster
+        access_control_list: *access_control_list
+        schedule: *schedule
+        {% if env.ENV == 'prod' %}
+        email_notifications: *email_notifications
+        {% endif %}
+        tasks:
+          - task_key: "opt-ims_raw-telemetrypoints"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_ims_raw.telemetrypoints.yml", "--schema" , "dhf_iot_ims_raw_{{ env['ENV'] }}"]
+          - task_key: "vac-ims_raw-telemetrypoints"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_ims_raw.telemetrypoints.yml", "--schema" , "dhf_iot_ims_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-ims_raw-telemetrypoints
+          - task_key: "opt-ims_raw-tripsummary"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_ims_raw.tripsummary.yml", "--schema" , "dhf_iot_ims_raw_{{ env['ENV'] }}" ]
+          - task_key: "vac-ims_raw-tripsummary"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_ims_raw.tripsummary.yml", "--schema" , "dhf_iot_ims_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-ims_raw-tripsummary
+          - task_key: "opt-ims_raw-telemetryevents"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_ims_raw.telemetryevents.yml", "--schema" , "dhf_iot_ims_raw_{{ env['ENV'] }}" ]
+          - task_key: "vac-ims_raw-telemetryevents"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_ims_raw.telemetryevents.yml", "--schema" , "dhf_iot_ims_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-ims_raw-telemetryevents
+          - task_key: "opt-ims_raw-nontripevent"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_ims_raw.nontripevent.yml", "--schema" , "dhf_iot_ims_raw_{{ env['ENV'] }}" ]
+          - task_key: "vac-ims_raw-nontripevent"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_ims_raw.nontripevent.yml", "--schema" , "dhf_iot_ims_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-ims_raw-nontripevent
+          - task_key: "opt-ims_raw-scoring"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_ims_raw.scoring.yml", "--schema" , "dhf_iot_ims_raw_{{ env['ENV'] }}" ]
+          - task_key: "vac-ims_raw-scoring"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_ims_raw.scoring.yml", "--schema" , "dhf_iot_ims_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-ims_raw-scoring
+          - task_key: "opt-ims_raw-histogramscoringintervals"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_ims_raw.histogramscoringintervals.yml", "--schema" , "dhf_iot_ims_raw_{{ env['ENV'] }}" ]
+          - task_key: "vac-ims_raw-histogramscoringintervals"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_ims_raw.histogramscoringintervals.yml", "--schema" , "dhf_iot_ims_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-ims_raw-histogramscoringintervals
+############################################################################################
+      - name: "iot_optimize_vacuum-dhf_iot_fmc_raw_{{ env['ENV'] }}"
+        job_clusters:
+          - job_cluster_key: "default"
+            <<: *basic-static-cluster
+        access_control_list: *access_control_list
+        schedule: *schedule
+        {% if env.ENV == 'prod' %}
+        email_notifications: *email_notifications
+        {% endif %}
+        tasks:
+          - task_key: "opt-fmc_raw-telemetrypoints"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_fmc_raw.telemetrypoints.yml", "--schema" , "dhf_iot_fmc_raw_{{ env['ENV'] }}"]
+          - task_key: "vac-fmc_raw-telemetrypoints"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_fmc_raw.telemetrypoints.yml", "--schema" , "dhf_iot_fmc_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-fmc_raw-telemetrypoints
+          - task_key: "opt-fmc_raw-tripsummary"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_fmc_raw.tripsummary.yml", "--schema" , "dhf_iot_fmc_raw_{{ env['ENV'] }}" ]
+          - task_key: "vac-fmc_raw-tripsummary"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_fmc_raw.tripsummary.yml", "--schema" , "dhf_iot_fmc_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-fmc_raw-tripsummary
+            
+############################################################################################
+      - name: "iot_optimize_vacuum-dhf_iot_tims_raw_{{ env['ENV'] }}"
+        job_clusters:
+          - job_cluster_key: "default"
+            <<: *basic-static-cluster
+        access_control_list: *access_control_list
+        schedule: *schedule
+        {% if env.ENV == 'prod' %}
+        email_notifications: *email_notifications
+        {% endif %}
+        tasks:
+          - task_key: "opt-tims_raw-telemetrypoints"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_tims_raw.telemetrypoints.yml", "--schema" , "dhf_iot_tims_raw_{{ env['ENV'] }}"]
+          - task_key: "vac-tims_raw-telemetrypoints"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_tims_raw.telemetrypoints.yml", "--schema" , "dhf_iot_tims_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-tims_raw-telemetrypoints
+          - task_key: "opt-tims_raw-tripsummary"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_tims_raw.tripsummary.yml", "--schema" , "dhf_iot_tims_raw_{{ env['ENV'] }}" ]
+          - task_key: "vac-tims_raw-tripsummary"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_tims_raw.tripsummary.yml", "--schema" , "dhf_iot_tims_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-tims_raw-tripsummary
+            
+############################################################################################
+      - name: "iot_optimize_vacuum-dhf_iot_harmonized_{{ env['ENV'] }}"
+        tags: *tags
+        access_control_list: *access_control_list
+        schedule: *schedule
+        {% if env.ENV == 'prod' %}
+        email_notifications: *email_notifications
+        {% endif %}
+        job_clusters:
+          - job_cluster_key: "default"
+            <<: *basic-static-cluster
+        tasks:
+          - task_key: "vac-harmonized-trip_summary"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_harmonized.trip_summary.yml", "--schema" , "dhf_iot_harmonized_{{ env['ENV'] }}" ]
+          # - task_key: "vac-harmonized-trip_point"
+          #   job_cluster_key: "default"
+          #   python_wheel_task:
+          #     package_name: "pc_iot_delta_optimize_vacuum"
+          #     entry_point: vacuum
+          #     parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_harmonized.trip_point.yml", "--schema" , "dhf_iot_harmonized_{{ env['ENV'] }}" ]
+          - task_key: "vac-harmonized-trip_event"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_harmonized.trip_event.yml", "--schema" , "dhf_iot_harmonized_{{ env['ENV'] }}" ]
+          - task_key: "vac-harmonized-trip_detail_seconds"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_harmonized.trip_detail_seconds.yml", "--schema" , "dhf_iot_harmonized_{{ env['ENV'] }}" ]
+############################################################################################
+      - name: "iot_optimize_vacuum-dhf_iot_cmt_raw_{{ env['ENV'] }}"
+        tags: *tags
+        access_control_list: *access_control_list
+        schedule: *schedule
+        {% if env.ENV == 'prod' %}
+        email_notifications: *email_notifications
+        {% endif %}
+        job_clusters:
+          - job_cluster_key: "default"
+            <<: *basic-static-cluster
+        tasks:
+          - task_key: "opt-cmt_raw-outbound_mobile_score_elements"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_cmt_raw.outbound_mobile_score_elements.yml", "--schema" , "dhf_iot_cmt_raw_{{ env['ENV'] }}" ]
+          - task_key: "vac-cmt_raw-outbound_mobile_score_elements"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_cmt_raw.outbound_mobile_score_elements.yml", "--schema" , "dhf_iot_cmt_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-cmt_raw-outbound_mobile_score_elements
+          - task_key: "opt-cmt_raw-trip_summary_realtime"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_cmt_raw.trip_summary_realtime.yml", "--schema" , "dhf_iot_cmt_raw_{{ env['ENV'] }}" ]
+          - task_key: "vac-cmt_raw-trip_summary_realtime"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_cmt_raw.trip_summary_realtime.yml", "--schema" , "dhf_iot_cmt_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-cmt_raw-trip_summary_realtime
+          - task_key: "opt-cmt_raw-waypoints_realtime"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_cmt_raw.waypoints_realtime.yml", "--schema" , "dhf_iot_cmt_raw_{{ env['ENV'] }}" ]
+          - task_key: "vac-cmt_raw-waypoints_realtime"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_cmt_raw.waypoints_realtime.yml", "--schema" , "dhf_iot_cmt_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-cmt_raw-waypoints_realtime
+          - task_key: "opt-cmt_raw-events_realtime"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_cmt_raw.events_realtime.yml", "--schema" , "dhf_iot_cmt_raw_{{ env['ENV'] }}" ]
+          - task_key: "vac-cmt_raw-events_realtime"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_cmt_raw.events_realtime.yml", "--schema" , "dhf_iot_cmt_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-cmt_raw-events_realtime
+          - task_key: "opt-cmt_raw-trip_detail_realtime"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_cmt_raw.trip_detail_realtime.yml", "--schema" , "dhf_iot_cmt_raw_{{ env['ENV'] }}" ]
+          - task_key: "vac-cmt_raw-trip_detail_realtime"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_cmt_raw.trip_detail_realtime.yml", "--schema" , "dhf_iot_cmt_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-cmt_raw-trip_detail_realtime
+
+
+############################################################################################
+      - name: "iot_optimize_vacuum-dhf_iot_cmt_cl_raw_{{ env['ENV'] }}"
+        tags: *tags
+        access_control_list: *access_control_list
+        schedule: *schedule
+        {% if env.ENV == 'prod' %}
+        email_notifications: *email_notifications
+        {% endif %}
+        job_clusters:
+          - job_cluster_key: "default"
+            <<: *basic-static-cluster
+        tasks:
+          - task_key: "opt-cmt_raw_cl-trip_summary_realtime"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_cmt_cl_raw.trip_summary_realtime.yml", "--schema" , "dhf_iot_cmt_cl_raw_{{ env['ENV'] }}" ]
+          - task_key: "vac-cmt_raw_cl-trip_summary_realtime"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_cmt_cl_raw.trip_summary_realtime.yml", "--schema" , "dhf_iot_cmt_cl_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-cmt_raw_cl-trip_summary_realtime
+
+############################################################################################
+      - name: "iot_optimize_vacuum-dhf_iot_raw_{{ env['ENV'] }}"
+        tags: *tags
+        access_control_list: *access_control_list
+        schedule: *schedule
+        {% if env.ENV == 'prod' %}
+        email_notifications: *email_notifications
+        {% endif %}
+        job_clusters:
+          - job_cluster_key: "default"
+            <<: *basic-static-cluster
+        tasks:
+          - task_key: "opt-dhf_iot_raw-mf_scrubbed_trip_detail"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_raw.mf_scrubbed_trip_detail.yml", "--schema" , "dhf_iot_raw_{{ env['ENV'] }}" ]
+          - task_key: "vac-dhf_iot_raw-mf_scrubbed_trip_detail"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_raw.mf_scrubbed_trip_detail.yml", "--schema" , "dhf_iot_raw_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-dhf_iot_raw-mf_scrubbed_trip_detail
+
+############################################################################################
+      - name: "iot_optimize_vacuum-dhf_iot_raw_score_{{ env['ENV'] }}"
+        tags: *tags
+        access_control_list: *access_control_list
+        schedule: *schedule
+        {% if env.ENV == 'prod' %}
+        email_notifications: *email_notifications
+        {% endif %}
+        job_clusters:
+          - job_cluster_key: "default"
+            <<: *basic-static-cluster
+        tasks:
+          - task_key: "opt-dhf_iot_raw_score-sm2_veh_trip_score_inbound"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: optimize
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_raw_score.sm2_veh_trip_score_inbound.yml", "--schema" , "dhf_iot_raw_score_{{ env['ENV'] }}" ]
+          - task_key: "vac-dhf_iot_raw_score-sm2_veh_trip_score_inbound"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/dhf_iot_raw_score.sm2_veh_trip_score_inbound.yml", "--schema" , "dhf_iot_raw_score_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: opt-dhf_iot_raw_score-sm2_veh_trip_score_inbound
+
+############################################################################################
+      - name: "iot_opt_vac_ad_hoc_{{ env['ENV'] }}"
+        tags: *tags
+        access_control_list: *access_control_list
+        # schedule: *schedule
+        # {% if env.ENV == 'prod' %}
+        # email_notifications: *email_notifications
+        # {% endif %}
+        job_clusters:
+          - job_cluster_key: "default"
+            <<: *basic-static-cluster
+        tasks:
+          - task_key: "opt-adhoc"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pc_iot_delta_optimize_vacuum"
+              entry_point: vacuum
+              parameters: [ "--conf-file", "file:fuse://conf/tasks/adhoc.yml"]

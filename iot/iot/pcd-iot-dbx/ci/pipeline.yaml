@@ -1,0 +1,325 @@
+resource_types:
+  - name: pull-request
+    type: registry-image
+    source:
+      repository: ntr.nwie.net/docker.io/teliaoss/github-pr-resource
+      tag: latest
+
+resources:
+  - name: pull-request
+    type: pull-request
+    icon: source-pull
+    check_every: 24h
+    webhook_token: ((github.webhook-token))
+    source:
+      repository: Nationwide/pcd-iot-dbx
+      access_token: ((github.access-token))
+      v3_endpoint: https://github.nwie.net/api/v3
+      v4_endpoint: https://github.nwie.net/api/graphql
+
+  - name: source-main
+    type: git
+    icon: source-branch
+    check_every: 24h
+    webhook_token: ((github.webhook-token))
+    source:
+      uri: https://github.nwie.net/Nationwide/pcd-iot-dbx.git
+      branch: main
+
+  - name: version
+    type: semver
+    icon: counter
+    check_every: 24h
+    source:
+      driver: git
+      uri: https://github.nwie.net/Nationwide/pcd-iot-dbx.git
+      branch: version
+      file: VERSION
+      username: ((github.username))
+      password: ((github.access-token))
+
+  - name: concourse-common
+    type: git
+    icon: source-repository
+    check_every: 24h
+    source:
+      uri: https://github.nwie.net/Nationwide/concourse-common
+      tag_filter: v1.44.0
+    webhook_token: ((github.webhook-token))
+
+  - name: github-pre-release-draft
+    type: github-release
+    icon: cloud-upload-outline
+    check_every: 24h
+    webhook_token: ((github.webhook-token))
+    source:
+      owner: Nationwide
+      repository: pcd-iot-dbx
+      access_token: ((github.access-token))
+      github_api_url: https://api.github.nwie.net
+      pre_release: true
+      release: false
+      drafts: true
+
+  - name: github-pre-release
+    type: github-release
+    icon: cloud-upload-outline
+    check_every: 24h
+    webhook_token: ((github.webhook-token))
+    source:
+      owner: Nationwide
+      repository: pcd-iot-dbx
+      access_token: ((github.access-token))
+      github_api_url: https://api.github.nwie.net
+      pre_release: true
+      release: false
+
+  - name: github-release
+    type: github-release
+    icon: cloud-upload-outline
+    check_every: 24h
+    webhook_token: ((github.webhook-token))
+    source:
+      owner: Nationwide
+      repository: pcd-iot-dbx
+      access_token: ((github.access-token))
+      github_api_url: https://api.github.nwie.net
+
+jobs:
+  - name: pytests-and-sonarqube
+    plan:
+      - in_parallel:
+          - get: concourse-common
+          - get: pull-request
+            trigger: true
+          - get: version
+
+      - in_parallel:
+          - put: pull-request
+            params:
+              path: pull-request
+              status: pending
+              context: unit-tests
+          - put: pull-request
+            params:
+              path: pull-request
+              status: pending
+              context: sonar-scan
+
+      - task: pytest
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: ((docker.ntr-host))/roberd7/dbx
+              tag: "latest"
+          inputs:
+            - name: pull-request
+          outputs:
+            - name: reports
+          run:
+            path: sh
+            args:
+              - -c
+              - |
+                cd pull-request &&
+                export PYTHONPATH=. &&
+                coverage run -m pytest --junitxml=pytest-report.xml &&
+                coverage xml -o coverage.xml &&
+                cp *.xml ../reports &&
+                cp -r pcd_iot_dbx ../reports
+        on_success:
+          put: pull-request
+          params:
+            path: pull-request
+            status: success
+            context: unit-tests
+        on_failure:
+          put: pull-request
+          params:
+            path: pull-request
+            status: failure
+            context: unit-tests
+
+      - task: sonar-scan
+        file: concourse-common/tasks/sonar/full.yml
+        input_mapping:
+          src: reports
+        params:
+          sonar_major_version: 9
+          sonar_url: https://sonarqube.nwie.net
+          sonar_token: ((sonar.token))
+          sonar_project_key: PNC.PCDS.6327.pcd-iot-dbx
+          sonar_scanner_args: >-
+            -Dsonar.python.coverage.reportPaths=coverage.xml
+            -Dsonar.python.xunit.reportPath=pytest-report.xml
+            -Dsonar.coverage.exclusions=pcd_iot_dbx/__init__.py,pcd_iot_dbx/common.py
+            -Dsonar.python.version=3
+          debug: true
+          enforce_quality_gate: false
+          github_bearer: ((github.access-token))
+          github_org: Nationwide
+          github_repo: pcd-iot-dbx
+        on_success:
+          put: pull-request
+          params:
+            path: pull-request
+            status: success
+            context: sonar-scan
+        on_failure:
+          put: pull-request
+          params:
+            path: pull-request
+            status: failure
+            context: sonar-scan
+            comment: Sonar Scan has failed for this pull request
+
+  - name: deploy-dev
+    plan:
+      - in_parallel:
+          - get: source-main
+            trigger: true
+          - get: version
+            params:
+              bump: patch
+            passed:
+              - pytests-and-sonarqube
+
+      - task: dbx-deploy
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: ((docker.ntr-host))/roberd7/dbx
+              tag: "latest"
+          inputs:
+            - name: source-main
+            - name: version
+          outputs:
+            - name: release-body
+          params:
+            ENV: dev
+            DATABRICKS_HOST: ((dbx.DATABRICKS_HOST_DEV))
+            DATABRICKS_TOKEN: ((dbx.DATABRICKS_TOKEN_DEV))
+          run:
+            path: sh
+            args:
+              - -c
+              - |
+                set -ex &&
+                echo "Create json to define what to deploy and remove everything but the json when publishing." > release-body/body &&
+                echo "Example to deploy all workflows in one deployment and specific workflows in another deployment:" >> release-body/body &&
+                echo '{ "deployment.yml" : ["*"] , "deployment_other.yml" : ["workflowA", "workflowB"] }' >> release-body/body &&
+                export VERSION=$(cat version/version) &&
+                cd source-main &&
+                for f in $(ls conf/deployments/); do dbx deploy --jinja-variables-file=conf/vars.yml --deployment-file conf/deployments/$f; done
+
+      - put: github-pre-release-draft
+        params:
+          name: version/version
+          tag_prefix: v
+          tag: version/version
+          commitish: source-main/.git/ref
+          generate_release_notes: true
+          body: release-body/body
+
+      - put: version
+        params:
+          file: version/version
+
+  - name: deploy-test
+    plan:
+      - in_parallel:
+          - get: source-main
+            passed:
+              - deploy-dev
+          - get: github-pre-release
+            trigger: true
+            params:
+              globs:
+                - "*"
+
+      - task: dbx-deploy
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: ((docker.ntr-host))/roberd7/dbx
+              tag: "latest"
+          inputs:
+            - name: github-pre-release
+          params:
+            ENV: test
+            DATABRICKS_HOST: ((dbx.DATABRICKS_HOST_TEST))
+            DATABRICKS_TOKEN: ((dbx.DATABRICKS_TOKEN_TEST))
+          run:
+            path: bash
+            args:
+              - -c
+              - |
+                set -ex &&
+                cd github-pre-release &&
+                if [ ! -s body ]; then echo 'Release body text is empty. Must provide a json object in the format { "deployment_yaml_name" : ["*"] | ["workflowA" , ...] }'; exit 1;fi  &&
+                git clone https://github.nwie.net/Nationwide/pcd-iot-dbx.git &&
+                cd pcd-iot-dbx &&
+                git checkout $(cat ../commit_sha) &&
+                export VERSION=$(cat ../version) &&
+                export deployments=$(jq -r 'keys | .[]' ../body)
+                for deployment in ${deployments[@]}
+                do  
+                  workflows=$(jq -r .\"$deployment\" ../body)
+                  workflow_delim_list=$(echo $workflows | jq -r '. | join(",")')
+                  if [ "$workflow_delim_list" == "*" ]
+                    then dbx deploy --jinja-variables-file=conf/vars.yml --deployment-file conf/deployments/$deployment --tags Version=$(cat ../version) --tags Tag=$(cat ../tag)
+                    else dbx deploy --jinja-variables-file=conf/vars.yml --deployment-file conf/deployments/$deployment --workflows $workflow_delim_list --tags Version=$(cat ../version) --tags Tag=$(cat ../tag)
+                  fi
+                done
+
+  - name: deploy-prod
+    plan:
+      - in_parallel:
+          - get: source-main
+            passed:
+              - deploy-test
+          - get: github-release
+            trigger: true
+
+      - task: dbx-deploy
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: ((docker.ntr-host))/roberd7/dbx
+              tag: "latest"
+          inputs:
+            - name: github-release
+          params:
+            ENV: prod
+            DATABRICKS_HOST: ((dbx.DATABRICKS_HOST_PROD))
+            DATABRICKS_TOKEN: ((dbx.DATABRICKS_TOKEN_PROD))
+          run:
+            path: bash
+            args:
+              - -c
+              - |
+                set -ex &&
+                cd github-release &&
+                if [ ! -s body ]; then echo 'Release body text is empty. Must provide a json object in the format { "deployment_yaml_name" : ["*"] | ["workflowA" , ...] }'; exit 1;fi  &&
+                git clone https://github.nwie.net/Nationwide/pcd-iot-dbx.git &&
+                cd pcd-iot-dbx &&
+                git checkout $(cat ../commit_sha) &&
+                export VERSION=$(cat ../version) &&
+                export deployments=$(jq -r 'keys | .[]' ../body)
+                for deployment in ${deployments[@]}
+                do
+                  workflows=$(jq -r .\"$deployment\" ../body)
+                  workflow_delim_list=$(echo $workflows | jq -r '. | join(",")')
+                  if [ "$workflow_delim_list" == "*" ]
+                    then dbx deploy --jinja-variables-file=conf/vars.yml --deployment-file conf/deployments/$deployment --tags Version=$(cat ../version) --tags Tag=$(cat ../tag)
+                    else dbx deploy --jinja-variables-file=conf/vars.yml --deployment-file conf/deployments/$deployment --workflows $workflow_delim_list --tags Version=$(cat ../version) --tags Tag=$(cat ../tag)
+                  fi
+                done

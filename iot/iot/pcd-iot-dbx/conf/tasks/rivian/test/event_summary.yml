@@ -1,0 +1,25 @@
+program: rivian
+name: av_aggregate
+read_stream:
+  format: cloudFiles
+  options:
+    pathGlobFilter: "*.csv"
+    recursiveFileLookup: true
+    cloudFiles.format: csv
+    cloudFiles.maxFilesPerTrigger: "5"
+    cloudFiles.queueUrl: https://sqs.us-east-1.amazonaws.com/168341759447/IotRivianAvAggregate
+    cloudFiles.region: us-east-1
+    cloudFiles.useNotifications: true
+    cloudFiles.includeExistingFiles: false
+    cloudFiles.validateOptions: true
+  source_s3_location: s3://pcds-internal-iot-rivian-telematics-168341759447/rivian-sourcefiles/daily/
+write_stream:
+  trigger:
+    availableNow: True
+  options:
+    checkpointLocation: s3://pc-iot-raw-168341759447/rivian/checkpoints/av_aggregate
+micro_batch:
+  mode: append
+  save_as:
+    table: av_aggregate
+    schema: dhf_iot_rivian_raw_test

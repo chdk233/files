@@ -1,0 +1,102 @@
+# Custom section is used to store configurations that might be repetative.
+# Please read YAML documentation for details on how to use substitutions and anchors.
+custom:
+  basic-cluster-props: &basic-cluster-props
+    spark_version: "12.2.x-scala2.12"
+    data_security_mode: "NONE"
+    policy_id: cluster-policy://IOT_JOB_SML
+    cluster_log_conf:
+      s3:
+        region: us-east-1
+        destination: {{ var[env['ENV']]['cluster_log_destination'] }}
+    aws_attributes:
+      first_on_demand: 1
+      instance_profile_arn: {{ var[env['ENV']]['cluster_instance_profile_arn'] }}
+      ebs_volume_count: 1
+      ebs_volume_size: 100
+      ebs_volume_type: GENERAL_PURPOSE_SSD
+    custom_tags:
+      Project: pl-notion:smarthome:ingest-ingestion-stream
+
+  basic-static-cluster: &basic-static-cluster
+    new_cluster:
+      <<: *basic-cluster-props
+      num_workers: {{ var[env['ENV']]['default_num_workers'] }}
+      node_type_id: {{ var[env['ENV']]['default_worker_node_type'] }}
+      driver_node_type_id: {{ var[env['ENV']]['driver_node_type'] }}
+      enable_elastic_disk: true
+
+  mem-static-cluster: &mem-static-cluster
+    new_cluster:
+      <<: *basic-cluster-props
+      num_workers: {{ var[env['ENV']]['default_num_workers'] }}
+      node_type_id: {{ var[env['ENV']]['mem_worker_node_type'] }}
+      driver_node_type_id: {{ var[env['ENV']]['driver_node_type'] }}
+      enable_elastic_disk: true
+
+  access_control_list: &access_control_list
+      {% for group in var[env['ENV']]['manage_run_group'].split(',') %}
+    - group_name: {{ group }}
+      permission_level: CAN_MANAGE_RUN
+      {% endfor %}
+    - user_name: iotsid@nationwide.com
+      permission_level: IS_OWNER
+      {% if env.ENV == 'prod' %}
+    - group_name: databricks_pc_prod_iot_ops_user
+      permission_level: CAN_MANAGE_RUN
+      {% endif %}
+
+  schedule: &daily_schedule
+    quartz_cron_expression: "00 00 10 * * ?"
+    timezone_id: "US/Mountain"
+    pause_status: {{ var[env['ENV']]['schedule_status'] }}
+
+  schedule: &weekly_schedule
+    quartz_cron_expression: "0 0 8 ? * MON"
+    timezone_id: "US/Mountain"
+    pause_status: {{ var[env['ENV']]['schedule_status'] }}
+
+  schedule: &monthly_schedule
+    quartz_cron_expression: "0 0 10 1W * ?"
+    timezone_id: "US/Mountain"
+    pause_status: {{ var[env['ENV']]['schedule_status'] }}
+
+  email_notifications: &email_notifications
+    on_failure:
+    - dd57a6dc.nationwide.com@amer.teams.ms
+    - NWLine-IoTA@nationwide.com
+    no_alert_for_skipped_runs: true
+
+  tags: &tags
+    version: {{ env['VERSION'] }}
+    repo: pcd-iot-dbx
+
+environments:
+  default:
+    workflows:
+      - name: "iot-smarthome-reporting"
+        tags: *tags
+        access_control_list: *access_control_list
+        schedule: *daily_schedule
+        {% if env.ENV == 'prod' %}
+        email_notifications: *email_notifications
+        {% endif %}
+        job_clusters:
+          - job_cluster_key: "default"
+            <<: *basic-static-cluster
+        tasks:
+          - task_key: "device_summary"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pcd_iot_dbx"
+              entry_point: "smarthome_device_summary"
+              parameters: ["--conf-file", "file:fuse://conf/tasks/smarthome/reporting/reporting.yml", "--schema" , "dhf_iot_curated_{{ env['ENV'] }}"]
+          - task_key: "device_summary_vw"
+            job_cluster_key: "default"
+            python_wheel_task:
+              package_name: "pcd_iot_dbx"
+              entry_point: "smarthome_device_summary_view"
+              parameters: ["--conf-file", "file:fuse://conf/tasks/smarthome/reporting/reporting.yml", "--schema" , "dhf_iot_curated_{{ env['ENV'] }}"]
+            depends_on:
+            - task_key: device_summary
+          

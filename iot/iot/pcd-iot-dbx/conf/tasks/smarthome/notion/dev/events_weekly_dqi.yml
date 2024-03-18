@@ -1,0 +1,22 @@
+program: smarthome_notion
+name: events_weekly
+read_stream:
+  format: delta
+  options:
+    ignoreChanges: true
+    maxBytesPerTrigger: 1G
+  table_source: dhf_iot_notion_raw_dev.events_weekly
+write_stream:
+  trigger:
+    availableNow: True
+  options:
+    checkpointLocation: s3://pc-iot-raw-786994105833/notion/checkpoints/WklyEventsDQI
+alert_conf:
+  email_to: 56a3a54a.nationwide.com@amer.teams.ms
+  email_from: iot_test@nationwide.com
+  email_subject: "DQI Alert: events_weekly"
+dqi_conf:
+  target_table: dhf_iot_dqichecks_dev.notion_raw_audit_errors
+  mode: append
+  source_partition_column: load_dt
+

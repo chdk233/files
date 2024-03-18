@@ -1,0 +1,3 @@
+# yaml-language-server: $schema=file:///workspaces/pc-iot-delta-optimize-vacuum/conf/templates/job_specs_schema.json
+table_specs:
+  table: trip_summary

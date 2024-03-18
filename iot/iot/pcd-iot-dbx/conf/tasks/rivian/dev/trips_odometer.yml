@@ -1,0 +1,26 @@
+program: rivian
+name: trips_odometer
+read_stream:
+  format: cloudFiles
+  options:
+    pathGlobFilter: "*.csv"
+    recursiveFileLookup: true
+    cloudFiles.format: csv
+    cloudFiles.maxFilesPerTrigger: "5"
+    cloudFiles.queueUrl: https://sqs.us-east-1.amazonaws.com/786994105833/IotRivianTripsOdometer
+    cloudFiles.region: us-east-1
+    cloudFiles.useNotifications: true
+    cloudFiles.includeExistingFiles: false
+    cloudFiles.validateOptions: true
+    header: true
+  source_s3_location: s3://pcds-internal-iot-rivian-telematics-786994105833/rivian-sourcefiles/daily/
+write_stream:
+  trigger:
+    availableNow: True
+  options:
+    checkpointLocation: s3://pc-iot-raw-786994105833/rivian/checkpoints/trips_odometer
+micro_batch:
+  mode: append
+  save_as:
+    table: trips_odometer
+    schema: dhf_iot_rivian_raw_dev

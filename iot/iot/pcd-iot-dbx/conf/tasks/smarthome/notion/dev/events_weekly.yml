@@ -1,0 +1,25 @@
+program: smarthome_notion
+name: events_weekly
+read_stream:
+  format: cloudFiles
+  options:
+    pathGlobFilter: "*.json"
+    recursiveFileLookup: true
+    cloudFiles.format: json
+    cloudFiles.maxFilesPerTrigger: "5"
+    cloudFiles.queueUrl: https://sqs.us-east-1.amazonaws.com/786994105833/IotSmarthomeNotionWklyEvents
+    cloudFiles.region: us-east-1
+    cloudFiles.useNotifications: true
+    cloudFiles.includeExistingFiles: false
+    cloudFiles.validateOptions: true
+  source_s3_location: s3://dw-internal-pl-notion-smarthome-telematics-786994105833/Notion_Raw/Weekly/
+write_stream:
+  trigger:
+    availableNow: True
+  options:
+    checkpointLocation: s3://pc-iot-raw-786994105833/notion/checkpoints/WklyEvents
+micro_batch:
+  mode: append
+  save_as:
+    table: events_weekly
+    schema: dhf_iot_notion_raw_dev

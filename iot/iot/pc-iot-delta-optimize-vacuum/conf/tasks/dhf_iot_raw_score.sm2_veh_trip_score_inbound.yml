@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=file:///workspaces/pc-iot-delta-optimize-vacuum/conf/templates/job_specs_schema.json
+table_specs:
+  table: sm2_veh_trip_score_inbound
+  partition:
+    relative_date:
+      load_date:
+        days: -1

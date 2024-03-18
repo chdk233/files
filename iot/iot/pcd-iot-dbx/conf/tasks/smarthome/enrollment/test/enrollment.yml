@@ -1,0 +1,26 @@
+program: smarthome
+name: enrollment
+read_stream:
+  format: kafka
+  options:
+    kafka.bootstrap.servers: event-streaming-dev-kb.aws.e1.nwie.net:9092
+    kafka.security.protocol: SSL
+    kafka.ssl.truststore.location: PcdsIotTelematicsCommon_NonProd.jks
+    kafka.ssl.keystore.location: PcdsIotTelematicsCommon_NonProd.jks
+    kafka.ssl.truststore.password: dbxsecrets://pcds_iot_kafka/truststorePassword
+    kafka.ssl.keystore.password: dbxsecrets://pcds_iot_kafka/keystorePassword
+    kafka.ssl.key.password: dbxsecrets://pcds_iot_kafka/keyPassword
+    subscribe: business.policy-management.smart-home.enrollments.v2
+    maxOffsetsPerTrigger: 100000
+    startingOffsets: earliest
+    failOnDataLoss: "false"
+write_stream:
+  trigger:
+    availableNow: True
+  options:
+    checkpointLocation: s3://pc-iot-raw-168341759447/smarthome/checkpoints/sh_enrollment
+micro_batch:
+  mode: append
+  save_as:
+    table: sh_enrollment
+    schema: dhf_iot_raw_test

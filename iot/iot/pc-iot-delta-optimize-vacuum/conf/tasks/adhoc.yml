@@ -1,0 +1,4 @@
+# yaml-language-server: $schema=file:///workspaces/pc-iot-delta-optimize-vacuum/conf/templates/job_specs_schema.json
+table_specs:
+  table: trip_point
+  schema: dhf_iot_harmonized_prod
